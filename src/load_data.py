@@ -3,6 +3,7 @@
 from pathlib import Path
 import pandas as pd
 import pandas_market_calendars as mcal
+import numpy as np
 
 DATA_DIR = Path("../data")
 OUTPUT_DIR = Path("../output")
@@ -62,7 +63,6 @@ def load_implied_vol(
     mode: str = "avg2",
 ) -> pd.DataFrame:
     """Return implied vol matrix [date x ticker] (ATM IV) after earnings exclusion."""
-    import numpy as np
 
     iv_raw = pd.read_csv(filepath)
     iv_raw["c_date"] = pd.to_datetime(iv_raw["c_date"]).dt.normalize()
@@ -100,3 +100,31 @@ def load_implied_vol(
         raise ValueError("mode must be 'min' or 'avg2'")
 
     return iv_summary
+
+
+
+def load_close_to_close_realized_volatility(csv_path, realized_vol_term=5):
+    """
+    Load prices from CSV, compute realized volatility and future realized volatility.
+
+    Parameters:
+        csv_path (str): Path to the CSV file.
+        realized_vol_term (int): Window length for realized volatility and forecast shift.
+
+    Returns:
+        realized_vol (DataFrame): Current realized volatility.
+        future_realized_vol (DataFrame): Future realized volatility shifted by realized_vol_term.
+    """
+    df = pd.read_csv(csv_path, parse_dates=["date"])
+    df_prices = df.pivot(index="date", columns="ticker", values="close")
+    
+    df_returns = df_prices.pct_change()
+
+    realized_vol = (
+        np.sqrt((df_returns ** 2).rolling(realized_vol_term, min_periods=realized_vol_term).mean()) 
+        * np.sqrt(252)
+    )
+
+    future_realized_vol = realized_vol.shift(-realized_vol_term)
+
+    return realized_vol, future_realized_vol
