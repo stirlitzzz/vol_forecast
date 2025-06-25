@@ -4,6 +4,11 @@ from pathlib import Path
 import pandas as pd
 import pandas_market_calendars as mcal
 import numpy as np
+from src.analytic_utils import (
+    filter_earnings,
+    create_earnings_mask,
+    filter_earnings_by_ticker,
+)
 
 DATA_DIR = Path("../data")
 OUTPUT_DIR = Path("../output")
@@ -12,6 +17,7 @@ OUTPUT_DIR = Path("../output")
 
 # ---------------- Realized Vol ---------------- #
 
+
 def load_realized_vol(filepath: str | Path = DATA_DIR / "all_vols.csv") -> pd.DataFrame:
     """Return pivoted realized vol matrix [date x ticker] for 30‑min realized vol."""
     df = pd.read_csv(filepath, parse_dates=["date"])
@@ -19,27 +25,32 @@ def load_realized_vol(filepath: str | Path = DATA_DIR / "all_vols.csv") -> pd.Da
 
     nyse = mcal.get_calendar("NYSE")
     global_dates = (
-        nyse.valid_days(df["date"].min(), df["date"].max())
-        .tz_convert(None)
-        .normalize()
+        nyse.valid_days(df["date"].min(), df["date"].max()).tz_convert(None).normalize()
     )
-    vol_matrix = (
-        df.pivot(index="date", columns="ticker", values="annualized_vol_30min")
-        .reindex(global_dates)
-    )
+    vol_matrix = df.pivot(
+        index="date", columns="ticker", values="annualized_vol_30min"
+    ).reindex(global_dates)
     return vol_matrix
+
 
 # ---------------- Earnings Calendar ------------- #
 
-def load_earnings(filepath: str | Path = DATA_DIR / "earnings_calendar.csv") -> pd.DataFrame:
+
+def load_earnings(
+    filepath: str | Path = DATA_DIR / "earnings_calendar.csv",
+) -> pd.DataFrame:
     df = pd.read_csv(filepath)
     df = df.dropna(subset=["act_symbol"])
     df["date"] = pd.to_datetime(df["date"]).dt.normalize()
     return df
 
+
 # Build mask: set((ticker, excluded_date))
 
-def build_earnings_mask(earnings_df: pd.DataFrame, days_buffer: int = 1) -> set[tuple[str, pd.Timestamp]]:
+
+def build_earnings_mask(
+    earnings_df: pd.DataFrame, days_buffer: int = 1
+) -> set[tuple[str, pd.Timestamp]]:
     nyse = mcal.get_calendar("NYSE")
     min_d, max_d = earnings_df["date"].min(), earnings_df["date"].max()
     trade_days = nyse.valid_days(min_d, max_d).tz_convert(None).normalize()
@@ -54,7 +65,9 @@ def build_earnings_mask(earnings_df: pd.DataFrame, days_buffer: int = 1) -> set[
                 mask.add((sym, trade_days[j]))
     return mask
 
+
 # -------------- Implied Vol ---------------------- #
+
 
 def load_implied_vol(
     filepath: str | Path = DATA_DIR / "features_data.csv",
@@ -69,9 +82,7 @@ def load_implied_vol(
     iv_raw["expiry"] = pd.to_datetime(iv_raw["expiry"]).dt.normalize()
     iv_raw = iv_raw[iv_raw["texp"] <= max_dte_days / 365]
 
-    earnings_lookup = (
-        earnings_df.groupby("act_symbol")["date"].apply(set).to_dict()
-    )
+    earnings_lookup = earnings_df.groupby("act_symbol")["date"].apply(set).to_dict()
 
     def earns_between(row):
         sy = row["ticker"]
@@ -90,6 +101,7 @@ def load_implied_vol(
             .sort_index()
         )
     elif mode == "avg2":
+
         def avg_two(g):
             return g.nsmallest(2, "texp")["atm_iv"].mean()
 
@@ -100,7 +112,6 @@ def load_implied_vol(
         raise ValueError("mode must be 'min' or 'avg2'")
 
     return iv_summary
-
 
 
 def load_close_to_close_realized_volatility(csv_path, realized_vol_term=5):
@@ -117,14 +128,42 @@ def load_close_to_close_realized_volatility(csv_path, realized_vol_term=5):
     """
     df = pd.read_csv(csv_path, parse_dates=["date"])
     df_prices = df.pivot(index="date", columns="ticker", values="close")
-    
+
     df_returns = df_prices.pct_change()
 
-    realized_vol = (
-        np.sqrt((df_returns ** 2).rolling(realized_vol_term, min_periods=realized_vol_term).mean()) 
-        * np.sqrt(252)
-    )
+    realized_vol = np.sqrt(
+        (df_returns**2).rolling(realized_vol_term, min_periods=realized_vol_term).mean()
+    ) * np.sqrt(252)
 
     future_realized_vol = realized_vol.shift(-realized_vol_term)
 
     return realized_vol, future_realized_vol
+
+
+def prepare_volatility_data(config):
+    realized = load_realized_vol()
+    earnings = load_earnings()
+
+    # from src.analytic_utils only keeps earnings that are within the realized volatility data
+    earnings_subset = filter_earnings(
+        earnings, realized.index.min(), realized.index.max()
+    )
+    # from src.analytic_utils only keeps earnings for the tickers that are in the realized volatility data
+    earnings_subset = filter_earnings_by_ticker(earnings_subset, realized.columns)
+
+    # from src.analytic_utils creates a mask for the earnings that are within the realized volatility data
+    earnings_mask = create_earnings_mask(realized, earnings_subset)
+
+    close_realized, future_realized = load_close_to_close_realized_volatility(
+        "../data/all_vols.csv", realized_vol_term=config["forecast_horizon"]
+    )
+
+    implied = load_implied_vol("../output/features_data.csv", earnings_subset)
+
+    return {
+        "realized": realized,
+        "earnings_mask": earnings_mask,
+        "close_realized": close_realized,
+        "future_realized": future_realized,
+        "implied": implied,
+    }
