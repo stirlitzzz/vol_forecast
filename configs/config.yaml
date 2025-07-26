@@ -1,0 +1,12 @@
+# config.yaml
+experiment_name: "v2_rf_20pct"
+signal_threshold: 0.2
+features:
+  - signal
+  - signal_rank
+  - implied
+model:
+  type: random_forest
+  hyperparams:
+    n_estimators: 100
+    max_depth: 5
