@@ -33,7 +33,9 @@ def save_all_checkpoints(
     print(f"📦 Saving experiment outputs to: {output_dir}")
 
     # Save core artifacts
+    print(f"Saving X_df to {os.path.join(output_dir, 'X_df.parquet')}")
     X_df.to_parquet(os.path.join(output_dir, "X_df.parquet"))
+    print(f"X_df saved to {os.path.join(output_dir, 'X_df.parquet')}")
     y.to_frame("target").to_parquet(os.path.join(output_dir, "y.parquet"))
     label_matrix.to_parquet(os.path.join(output_dir, "label_matrix.parquet"))
     joblib.dump(model, os.path.join(output_dir, "model.pkl"))
