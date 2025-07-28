@@ -82,7 +82,7 @@ def load_all_checkpoints(output_dir: str) -> Dict[str, Any]:
     # Optional files
     idx_path = os.path.join(output_dir, "idx.parquet")
     if os.path.exists(idx_path):
-        result["idx"] = pd.read_parquet(idx_path).set_index(["level_0", "level_1"])
+        result["idx"] = pd.read_parquet(idx_path)#.set_index(["level_0", "level_1"])
 
     features_path = os.path.join(output_dir, "features.pkl")
     if os.path.exists(features_path):
