@@ -5,6 +5,7 @@ features:
   - signal
   - signal_rank
   - implied
+  - implied_rank
 model:
   type: random_forest
   hyperparams:

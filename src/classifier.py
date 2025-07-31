@@ -49,6 +49,7 @@ def create_classifier_features(config, train_realized, train_implied, train_fore
         "signal_rank": signal_rank,
         "implied": train_implied,
         "forecast": train_forecast,
-    }
+        "implied_rank": implied_rank
+        }
 
     return features, label_matrix
