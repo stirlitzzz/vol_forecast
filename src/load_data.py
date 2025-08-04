@@ -46,7 +46,24 @@ def load_earnings(
 
 
 # Build mask: set((ticker, excluded_date))
+def load_pivoted_field(
+    field: str,
+    filepath: str | Path = DATA_DIR / "all_vols.csv"
+) -> pd.DataFrame:
+    """
+    Return a pivoted matrix [date x ticker] for the specified field.
+    Example: field='close' or field='annualized_vol_30min'
+    """
+    df = pd.read_csv(filepath, parse_dates=["date"])
+    df.sort_values(["ticker", "date"], inplace=True)
 
+    nyse = mcal.get_calendar("NYSE")
+    global_dates = (
+        nyse.valid_days(df["date"].min(), df["date"].max()).tz_convert(None).normalize()
+    )
+
+    matrix = df.pivot(index="date", columns="ticker", values=field)
+    return matrix.reindex(global_dates)
 
 def build_earnings_mask(
     earnings_df: pd.DataFrame, days_buffer: int = 1

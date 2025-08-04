@@ -126,6 +126,21 @@ def save_all_checkpoints_v2(
 
         if dataset.get("idx") is not None:
             idx = dataset["idx"]
+
+        if isinstance(idx, pd.MultiIndex):
+            print("It's a MultiIndex:", idx.names)
+            idx_df = pd.DataFrame({
+                "timestamp": idx.get_level_values(0),
+                "ticker": idx.get_level_values(1)
+            })
+            idx_df.to_parquet(f"{prefix}_idx.parquet")
+        elif isinstance(idx, pd.Index):
+            print("It's a plain Index:", idx.name)
+        elif isinstance(idx, pd.DataFrame):
+            print("It's a DataFrame:", idx.columns)
+        else:
+            print("Unknown type:", type(idx))
+            idx = dataset["idx"]
             idx_df = idx.to_frame(index=False) if hasattr(idx, "to_frame") else pd.DataFrame(idx)
             idx_df.to_parquet(f"{prefix}_idx.parquet")
 
