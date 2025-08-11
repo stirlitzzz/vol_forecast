@@ -117,7 +117,7 @@ def compute_payoff_vec(spots: np.ndarray,
 #========================
 # NYSE calendar helpers
 #========================
-def add_nyse_days(start_dates, n_days):
+def add_nyse_days_v1(start_dates, n_days):
     out = []
     print(f"add_nyse_days: start_dates: {start_dates}")
     print(f"add_nyse_days: n_days: {n_days}")
@@ -141,7 +141,98 @@ def add_nyse_days(start_dates, n_days):
         out.append(valid_days[target_idx].date())
     return out
 
+import pandas as pd
+import numpy as np
+from datetime import timedelta
+import pandas_market_calendars as mcal
 
+NY = "America/New_York"
+nyse = mcal.get_calendar("XNYS")
+import pandas as pd
+import numpy as np
+import pandas_market_calendars as mcal
+
+NY = "America/New_York"
+nyse = mcal.get_calendar("XNYS")
+
+def add_nyse_days(start_dates, n_days: int):
+    """
+    Return dates that are n NYSE trading days after each start date.
+    Accepts list/array/Series of date/datetime (naive or tz-aware).
+    Rolls non-trading starts forward to the next trading day.
+    Returns plain `date` objects.
+    """
+
+    # 1) Normalize each element safely to NY tz midnight (no mixed-tz Series)
+    sd_list = []
+    for x in start_dates:
+        t = pd.Timestamp(x)
+        t_ny = t.tz_localize(NY) if t.tzinfo is None else t.tz_convert(NY)
+        sd_list.append(t_ny.normalize())
+
+    # 2) Build one valid-days index covering the whole range (+ generous overshoot)
+    start_min = min(sd_list) - pd.Timedelta(days=5)
+    end_max   = max(sd_list) + pd.Timedelta(days=n_days * 5 + 5)
+    valid_days = nyse.valid_days(start_date=start_min, end_date=end_max, tz=NY)  # tz-aware NY
+
+    # 3) Vectorized: find index of (rolled-forward) start, then add n_days
+    sd_idx = pd.DatetimeIndex(sd_list)
+    pos = valid_days.get_indexer(sd_idx, method="bfill")   # roll non-trading starts to next trading day
+    if (pos < 0).any():
+        bad = np.where(pos < 0)[0].tolist()
+        raise IndexError(f"Some start dates fell outside the valid_days window at indices {bad}. Increase overshoot.")
+
+    target_pos = pos + n_days
+    if (target_pos >= len(valid_days)).any():
+        raise IndexError("Not enough trading days in calendar window; increase overshoot.")
+
+    # 4) Return plain dates
+    return list(valid_days[target_pos].tz_convert(None).date)
+
+def add_nyse_days_v2(start_dates, n_days: int):
+    """
+    Return dates that are `n_days` NYSE trading days after each start date.
+
+    Accepts: list/array/Series of date or datetime (naive or tz-aware).
+    Behavior:
+      - Converts everything to NY tz (localize if naive, convert if tz-aware).
+      - If a start date is a non-trading day, rolls forward to the next trading day.
+      - Returns plain `date` objects.
+    """
+    # Coerce to pandas Series of Timestamps
+    sd = pd.to_datetime(pd.Series(start_dates), errors="coerce")
+    if sd.isna().any():
+        bad = sd[sd.isna()]
+        raise ValueError(f"Unparsable start_dates: {bad.index.tolist()}")
+
+    # Normalize to NY tz midnight (localize if naive, convert if tz-aware)
+    def _to_ny(ts: pd.Timestamp) -> pd.Timestamp:
+        return ts.tz_localize(NY) if ts.tzinfo is None else ts.tz_convert(NY)
+
+    sd_ny = sd.map(_to_ny).dt.normalize()
+
+    # Build a single valid_days index covering all needs
+    # Overshoot generously to ensure we can step +n_days even from the max start
+    start_min = sd_ny.min() - pd.Timedelta(days=5)
+    end_max   = sd_ny.max() + pd.Timedelta(days=n_days * 5 + 5)
+    valid_days = nyse.valid_days(start_date=start_min, end_date=end_max, tz=NY)  # tz-aware DatetimeIndex in NY
+
+    # For each start date, find its index (bfill to next trading day), then +n_days
+    # Use get_indexer for vectorized index location with method='bfill'
+    pos = valid_days.get_indexer(sd_ny, method="bfill")
+    if (pos < 0).any():
+        # Shouldn’t happen with the overshoot, but be explicit
+        bad_idx = np.where(pos < 0)[0].tolist()
+        raise IndexError(f"Some start dates fell after the valid_days range: indices {bad_idx}")
+
+    target_pos = pos + n_days
+    if (target_pos >= len(valid_days)).any():
+        raise IndexError("Not enough trading days in range; increase the overshoot window.")
+
+    result = valid_days[target_pos].tz_convert(None).date  # returns array of `date` via DatetimeIndex .date
+    # Return as a plain Python list of date objects
+    return list(result)
+    
 # =========================
 # Schema (dtypes guidance)
 # =========================
